@@ -2,11 +2,11 @@ package api
 
 import (
 	"github.com/gin-gonic/gin"
-	"go-tshirt/internal/config"
-	"go-tshirt/internal/db"
-	"go-tshirt/internal/repository"
-	"go-tshirt/internal/service"
-	"go-tshirt/internal/api/handlers"
+	"github.com/abdelmounim-dev/go-tshirt/internal/api/handlers"
+	"github.com/abdelmounim-dev/go-tshirt/internal/config"
+	"github.com/abdelmounim-dev/go-tshirt/internal/db"
+	"github.com/abdelmounim-dev/go-tshirt/internal/repository"
+	"github.com/abdelmounim-dev/go-tshirt/internal/service"
 )
 
 func NewRouter(cfg config.Config) *gin.Engine {

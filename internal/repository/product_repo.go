@@ -1,15 +1,24 @@
 package repository
 
 import (
-	"go-tshirt/internal/models"
+	"github.com/abdelmounim-dev/go-tshirt/internal/models"
 	"gorm.io/gorm"
 )
+
+type ProductRepository interface {
+	AutoMigrate() error
+	Create(p *models.Product) error
+	GetAll() ([]models.Product, error)
+	GetByID(id uint) (*models.Product, error)
+	Update(p *models.Product) error
+	Delete(id uint) error
+}
 
 type ProductRepo struct {
 	db *gorm.DB
 }
 
-func NewProductRepo(db *gorm.DB) *ProductRepo {
+func NewProductRepo(db *gorm.DB) ProductRepository {
 	return &ProductRepo{db: db}
 }
 

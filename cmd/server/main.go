@@ -2,8 +2,8 @@ package main
 
 import (
 	"log"
-	"go-tshirt/internal/api"
-	"go-tshirt/internal/config"
+	"github.com/abdelmounim-dev/go-tshirt/internal/api"
+	"github.com/abdelmounim-dev/go-tshirt/internal/config"
 )
 
 func main() {

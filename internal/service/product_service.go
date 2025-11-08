@@ -1,19 +1,34 @@
 package service
 
 import (
-	"go-tshirt/internal/models"
-	"go-tshirt/internal/repository"
+	custom_errors "github.com/abdelmounim-dev/go-tshirt/internal/errors"
+	"github.com/abdelmounim-dev/go-tshirt/internal/models"
+	"github.com/abdelmounim-dev/go-tshirt/internal/repository"
 )
 
-type ProductService struct {
-	repo *repository.ProductRepo
+type ProductServiceInterface interface {
+	Create(p *models.Product) error
+	GetAll() ([]models.Product, error)
+	GetByID(id uint) (*models.Product, error)
+	Update(p *models.Product) error
+	Delete(id uint) error
 }
 
-func NewProductService(repo *repository.ProductRepo) *ProductService {
+type ProductService struct {
+	repo repository.ProductRepository
+}
+
+func NewProductService(repo repository.ProductRepository) ProductServiceInterface {
 	return &ProductService{repo: repo}
 }
 
 func (s *ProductService) Create(p *models.Product) error {
+	if p.Name == "" {
+		return &custom_errors.ValidationError{Message: "product name cannot be empty"}
+	}
+	if p.Price <= 0 {
+		return &custom_errors.ValidationError{Message: "product price must be greater than zero"}
+	}
 	return s.repo.Create(p)
 }
 
@@ -26,6 +41,12 @@ func (s *ProductService) GetByID(id uint) (*models.Product, error) {
 }
 
 func (s *ProductService) Update(p *models.Product) error {
+	if p.Name == "" {
+		return &custom_errors.ValidationError{Message: "product name cannot be empty"}
+	}
+	if p.Price <= 0 {
+		return &custom_errors.ValidationError{Message: "product price must be greater than zero"}
+	}
 	return s.repo.Update(p)
 }
 

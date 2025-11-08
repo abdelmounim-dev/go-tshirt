@@ -1,19 +1,21 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
+	custom_errors "github.com/abdelmounim-dev/go-tshirt/internal/errors"
+	"github.com/abdelmounim-dev/go-tshirt/internal/models"
+	"github.com/abdelmounim-dev/go-tshirt/internal/service"
 	"github.com/gin-gonic/gin"
-	"go-tshirt/internal/models"
-	"go-tshirt/internal/service"
 )
 
 type ProductHandler struct {
-	svc *service.ProductService
+	svc service.ProductServiceInterface
 }
 
-func NewProductHandler(svc *service.ProductService) *ProductHandler {
+func NewProductHandler(svc service.ProductServiceInterface) *ProductHandler {
 	return &ProductHandler{svc: svc}
 }
 
@@ -51,6 +53,11 @@ func (h *ProductHandler) Create(c *gin.Context) {
 		return
 	}
 	if err := h.svc.Create(&p); err != nil {
+		var validationErr *custom_errors.ValidationError
+		if errors.As(err, &validationErr) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -66,6 +73,11 @@ func (h *ProductHandler) Update(c *gin.Context) {
 	}
 	p.ID = uint(id)
 	if err := h.svc.Update(&p); err != nil {
+		var validationErr *custom_errors.ValidationError
+		if errors.As(err, &validationErr) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
