@@ -23,7 +23,7 @@ func NewProductRepo(db *gorm.DB) ProductRepository {
 }
 
 func (r *ProductRepo) AutoMigrate() error {
-	return r.db.AutoMigrate(&models.Product{})
+	return r.db.AutoMigrate(&models.Product{}, &models.ProductVariant{})
 }
 
 func (r *ProductRepo) Create(p *models.Product) error {
@@ -32,13 +32,13 @@ func (r *ProductRepo) Create(p *models.Product) error {
 
 func (r *ProductRepo) GetAll() ([]models.Product, error) {
 	var products []models.Product
-	err := r.db.Find(&products).Error
+	err := r.db.Preload("Variants").Find(&products).Error
 	return products, err
 }
 
 func (r *ProductRepo) GetByID(id uint) (*models.Product, error) {
 	var product models.Product
-	err := r.db.First(&product, id).Error
+	err := r.db.Preload("Variants").First(&product, id).Error
 	return &product, err
 }
 

@@ -7,3 +7,12 @@ type ValidationError struct {
 func (e *ValidationError) Error() string {
 	return e.Message
 }
+
+type NotFoundError struct {
+	Message string
+}
+
+func (e *NotFoundError) Error() string {
+	return e.Message
+}
+
