@@ -6,229 +6,355 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
-	custom_errors "github.com/abdelmounim-dev/go-tshirt/internal/errors"
 	"github.com/abdelmounim-dev/go-tshirt/internal/models"
-	"github.com/abdelmounim-dev/go-tshirt/internal/service/mocks"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/mock/gomock"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
+func setupTestDB(t *testing.T) *gorm.DB {
+	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
+	assert.NoError(t, err)
+	err = db.AutoMigrate(&models.Product{}, &models.ProductVariant{})
+	assert.NoError(t, err)
+	return db
+}
+
 func TestProductHandler_Create(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockService := mocks.NewMockProductServiceInterface(ctrl)
-	handler := NewProductHandler(mockService)
-
 	gin.SetMode(gin.TestMode)
-	router := gin.Default()
-	router.POST("/products", handler.Create)
 
-	t.Run("should return 400 when validation fails", func(t *testing.T) {
-		// Arrange
-		product := &models.Product{Name: "", Price: 10}
-		mockService.EXPECT().Create(gomock.Any()).Return(&custom_errors.ValidationError{Message: "product name cannot be empty"})
+	testCases := []struct {
+		name         string
+		product      models.Product
+		expectedCode int
+		expectedBody string
+	}{
+		{
+			name:         "should return 400 when name is empty",
+			product:      models.Product{Name: "", Price: 10},
+			expectedCode: http.StatusBadRequest,
+			expectedBody: `{"error":"Key: 'Product.Name' Error:Field validation for 'Name' failed on the 'required' tag"}`,
+		},
+		{
+			name:         "should return 400 when price is zero",
+			product:      models.Product{Name: "T-shirt", Price: 0},
+			expectedCode: http.StatusBadRequest,
+			expectedBody: `{"error":"Key: 'Product.Price' Error:Field validation for 'Price' failed on the 'required' tag"}`,
+		},
+		{
+			name:         "should return 201 when product is created successfully",
+			product:      models.Product{Name: "T-shirt", Price: 10},
+			expectedCode: http.StatusCreated,
+		},
+	}
 
-		body, _ := json.Marshal(product)
-		req, _ := http.NewRequest(http.MethodPost, "/products", bytes.NewBuffer(body))
-		req.Header.Set("Content-Type", "application/json")
-		rec := httptest.NewRecorder()
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			db := setupTestDB(t)
+			handler := NewProductHandler(db)
+			router := gin.Default()
+			api := router.Group("/api")
+			handler.Register(api)
 
-		// Act
-		router.ServeHTTP(rec, req)
+			body, _ := json.Marshal(tc.product)
+			req, _ := http.NewRequest(http.MethodPost, "/api/products", bytes.NewBuffer(body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
 
-		// Assert
-		assert.Equal(t, http.StatusBadRequest, rec.Code)
-	})
+			router.ServeHTTP(rec, req)
 
-	t.Run("should return 201 when product is created successfully", func(t *testing.T) {
-		// Arrange
-		product := &models.Product{Name: "T-shirt", Price: 10}
-		mockService.EXPECT().Create(gomock.Any()).Return(nil)
+			assert.Equal(t, tc.expectedCode, rec.Code)
 
-		body, _ := json.Marshal(product)
-		req, _ := http.NewRequest(http.MethodPost, "/products", bytes.NewBuffer(body))
-		req.Header.Set("Content-Type", "application/json")
-		rec := httptest.NewRecorder()
+			if tc.expectedCode == http.StatusCreated {
+				var createdProduct models.Product
+				err := json.Unmarshal(rec.Body.Bytes(), &createdProduct)
+				assert.NoError(t, err)
+				assert.Equal(t, tc.product.Name, createdProduct.Name)
+				assert.Equal(t, tc.product.Price, createdProduct.Price)
+				assert.NotZero(t, createdProduct.ID)
 
-		// Act
-		router.ServeHTTP(rec, req)
-
-		// Assert
-		assert.Equal(t, http.StatusCreated, rec.Code)
-	})
+				var dbProduct models.Product
+				err = db.First(&dbProduct, createdProduct.ID).Error
+				assert.NoError(t, err)
+				assert.Equal(t, tc.product.Name, dbProduct.Name)
+			} else {
+				assert.JSONEq(t, tc.expectedBody, rec.Body.String())
+			}
+		})
+	}
 }
 
 func TestProductHandler_Update(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockService := mocks.NewMockProductServiceInterface(ctrl)
-	handler := NewProductHandler(mockService)
-
 	gin.SetMode(gin.TestMode)
-	router := gin.Default()
-	router.PUT("/products/:id", handler.Update)
 
-	t.Run("should return 400 when validation fails", func(t *testing.T) {
-		// Arrange
-		product := &models.Product{Name: "", Price: 10}
-		mockService.EXPECT().Update(gomock.Any()).Return(&custom_errors.ValidationError{Message: "product name cannot be empty"})
+	testCases := []struct {
+		name         string
+		productID    string
+		product      models.Product
+		setupDB      func(*gorm.DB) uint
+		expectedCode int
+		expectedBody string
+	}{
+		{
+			name:      "should return 400 when name is empty",
+			productID: "1",
+			product:   models.Product{Name: "", Price: 10},
+			setupDB: func(db *gorm.DB) uint {
+				p := models.Product{Name: "Old Name", Price: 50}
+				db.Create(&p)
+				return p.ID
+			},
+			expectedCode: http.StatusBadRequest,
+			expectedBody: `{"error":"Key: 'Product.Name' Error:Field validation for 'Name' failed on the 'required' tag"}`,
+		},
+		{
+			name:      "should return 400 when price is zero",
+			productID: "1",
+			product:   models.Product{Name: "Updated T-shirt", Price: 0},
+			setupDB: func(db *gorm.DB) uint {
+				p := models.Product{Name: "Old Name", Price: 50}
+				db.Create(&p)
+				return p.ID
+			},
+			expectedCode: http.StatusBadRequest,
+			expectedBody: `{"error":"Key: 'Product.Price' Error:Field validation for 'Price' failed on the 'required' tag"}`,
+		},
+		{
+			name:         "should return 404 when product not found",
+			productID:    "999",
+			product:      models.Product{Name: "Updated T-shirt", Price: 20},
+			setupDB:      func(db *gorm.DB) uint { return 0 }, // No product in DB
+			expectedCode: http.StatusNotFound,
+			expectedBody: `{"error":"Product not found"}`,
+		},
+		{
+			name:      "should return 200 when product is updated successfully",
+			productID: "1",
+			product:   models.Product{Name: "Updated T-shirt", Price: 20},
+			setupDB: func(db *gorm.DB) uint {
+				p := models.Product{Name: "Old Name", Price: 50}
+				db.Create(&p)
+				return p.ID
+			},
+			expectedCode: http.StatusOK,
+		},
+	}
 
-		body, _ := json.Marshal(product)
-		req, _ := http.NewRequest(http.MethodPut, "/products/1", bytes.NewBuffer(body))
-		req.Header.Set("Content-Type", "application/json")
-		rec := httptest.NewRecorder()
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			db := setupTestDB(t)
+			productID := tc.setupDB(db)
+			handler := NewProductHandler(db)
+			router := gin.Default()
+			api := router.Group("/api")
+			handler.Register(api)
 
-		// Act
-		router.ServeHTTP(rec, req)
+			idStr := tc.productID
+			if productID != 0 {
+				idStr = strconv.Itoa(int(productID))
+			}
 
-		// Assert
-		assert.Equal(t, http.StatusBadRequest, rec.Code)
-	})
+			body, _ := json.Marshal(tc.product)
+			req, _ := http.NewRequest(http.MethodPut, "/api/products/"+idStr, bytes.NewBuffer(body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
 
-	t.Run("should return 200 when product is updated successfully", func(t *testing.T) {
-		// Arrange
-		product := &models.Product{Name: "T-shirt", Price: 10}
-		mockService.EXPECT().Update(gomock.Any()).Return(nil)
+			router.ServeHTTP(rec, req)
 
-		body, _ := json.Marshal(product)
-		req, _ := http.NewRequest(http.MethodPut, "/products/1", bytes.NewBuffer(body))
-		req.Header.Set("Content-Type", "application/json")
-		rec := httptest.NewRecorder()
+			assert.Equal(t, tc.expectedCode, rec.Code)
 
-		// Act
-		router.ServeHTTP(rec, req)
+			if tc.expectedCode == http.StatusOK {
+				var updatedProduct models.Product
+				err := json.Unmarshal(rec.Body.Bytes(), &updatedProduct)
+				assert.NoError(t, err)
+				assert.Equal(t, tc.product.Name, updatedProduct.Name)
+				assert.Equal(t, tc.product.Price, updatedProduct.Price)
 
-		// Assert
-		assert.Equal(t, http.StatusOK, rec.Code)
-	})
+				var dbProduct models.Product
+				err = db.First(&dbProduct, idStr).Error
+				assert.NoError(t, err)
+				assert.Equal(t, tc.product.Name, dbProduct.Name)
+			} else {
+				assert.JSONEq(t, tc.expectedBody, rec.Body.String())
+			}
+		})
+	}
 }
 
 func TestProductHandler_GetAll(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockService := mocks.NewMockProductServiceInterface(ctrl)
-	handler := NewProductHandler(mockService)
-
 	gin.SetMode(gin.TestMode)
-	router := gin.Default()
-	router.GET("/products", handler.GetAll)
 
 	t.Run("should return 200 with products and variants", func(t *testing.T) {
-		// Arrange
-		expectedProducts := []models.Product{
-			{
-				ID:   1,
-				Name: "T-shirt Black",
-				Price: 25.00,
-				Variants: []models.ProductVariant{
-					{ID: 1, ProductID: 1, Color: "Black", Size: "M", Stock: 10},
-				},
-			},
-		}
-		mockService.EXPECT().GetAll().Return(expectedProducts, nil)
+		db := setupTestDB(t)
+		handler := NewProductHandler(db)
+		router := gin.Default()
+		api := router.Group("/api")
+		handler.Register(api)
 
-		req, _ := http.NewRequest(http.MethodGet, "/products", nil)
+		product1 := models.Product{Name: "T-shirt Black", Price: 25.00}
+		db.Create(&product1)
+		db.Create(&models.ProductVariant{ProductID: product1.ID, Color: "Black", Size: "M", Stock: 10})
+
+		req, _ := http.NewRequest(http.MethodGet, "/api/products", nil)
 		rec := httptest.NewRecorder()
 
-		// Act
 		router.ServeHTTP(rec, req)
 
-		// Assert
 		assert.Equal(t, http.StatusOK, rec.Code)
 		var products []models.Product
 		err := json.Unmarshal(rec.Body.Bytes(), &products)
 		assert.NoError(t, err)
 		assert.Len(t, products, 1)
-		assert.Equal(t, expectedProducts[0].Name, products[0].Name)
+		assert.Equal(t, product1.Name, products[0].Name)
 		assert.Len(t, products[0].Variants, 1)
-		assert.Equal(t, expectedProducts[0].Variants[0].Color, products[0].Variants[0].Color)
+		assert.Equal(t, "Black", products[0].Variants[0].Color)
 	})
 
-	t.Run("should return 500 when service returns error", func(t *testing.T) {
-		// Arrange
-		mockService.EXPECT().GetAll().Return(nil, errors.New("service error"))
+	t.Run("should return empty array if no products", func(t *testing.T) {
+		db := setupTestDB(t)
+		handler := NewProductHandler(db)
+		router := gin.Default()
+		api := router.Group("/api")
+		handler.Register(api)
 
-		req, _ := http.NewRequest(http.MethodGet, "/products", nil)
+		req, _ := http.NewRequest(http.MethodGet, "/api/products", nil)
 		rec := httptest.NewRecorder()
 
-		// Act
 		router.ServeHTTP(rec, req)
 
-		// Assert
-		assert.Equal(t, http.StatusInternalServerError, rec.Code)
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.JSONEq(t, `[]`, rec.Body.String())
 	})
 }
 
 func TestProductHandler_GetByID(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockService := mocks.NewMockProductServiceInterface(ctrl)
-	handler := NewProductHandler(mockService)
-
 	gin.SetMode(gin.TestMode)
-	router := gin.Default()
-	router.GET("/products/:id", handler.GetByID)
 
-	t.Run("should return 200 with product and variants", func(t *testing.T) {
-		// Arrange
-		expectedProduct := &models.Product{
-			ID:   1,
-			Name: "T-shirt Black",
-			Price: 25.00,
-			Variants: []models.ProductVariant{
-				{ID: 1, ProductID: 1, Color: "Black", Size: "M", Stock: 10},
+	testCases := []struct {
+		name         string
+		productID    string
+		setupDB      func(*gorm.DB) uint // Function to set up initial DB state and return ID
+		expectedCode int
+		expectedBody string
+	}{
+		{
+			name:      "should return 200 with product and variants",
+			productID: "1",
+			setupDB: func(db *gorm.DB) uint {
+				product := models.Product{Name: "T-shirt Black", Price: 25.00}
+				db.Create(&product)
+				db.Create(&models.ProductVariant{ProductID: product.ID, Color: "Black", Size: "M", Stock: 10})
+				return product.ID
 			},
-		}
-		mockService.EXPECT().GetByID(uint(1)).Return(expectedProduct, nil)
+			expectedCode: http.StatusOK,
+		},
+		{
+			name:         "should return 404 when product not found",
+			productID:    "999",
+			setupDB:      func(db *gorm.DB) uint { return 0 }, // No product in DB
+			expectedCode: http.StatusNotFound,
+			expectedBody: `{"error":"Product not found"}`,
+		},
+	}
 
-		req, _ := http.NewRequest(http.MethodGet, "/products/1", nil)
-		rec := httptest.NewRecorder()
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			db := setupTestDB(t)
+			productID := tc.setupDB(db)
+			handler := NewProductHandler(db)
+			router := gin.Default()
+			api := router.Group("/api")
+			handler.Register(api)
 
-		// Act
-		router.ServeHTTP(rec, req)
+			idStr := tc.productID
+			if productID != 0 {
+				idStr = strconv.Itoa(int(productID))
+			}
 
-		// Assert
-		assert.Equal(t, http.StatusOK, rec.Code)
-		var product models.Product
-		err := json.Unmarshal(rec.Body.Bytes(), &product)
-		assert.NoError(t, err)
-		assert.Equal(t, expectedProduct.Name, product.Name)
-		assert.Len(t, product.Variants, 1)
-		assert.Equal(t, expectedProduct.Variants[0].Color, product.Variants[0].Color)
-	})
+			req, _ := http.NewRequest(http.MethodGet, "/api/products/"+idStr, nil)
+			rec := httptest.NewRecorder()
 
-	t.Run("should return 404 when product not found", func(t *testing.T) {
-		// Arrange
-		mockService.EXPECT().GetByID(uint(1)).Return(nil, &custom_errors.NotFoundError{Message: "product not found"})
+			router.ServeHTTP(rec, req)
 
-		req, _ := http.NewRequest(http.MethodGet, "/products/1", nil)
-		rec := httptest.NewRecorder()
+			assert.Equal(t, tc.expectedCode, rec.Code)
 
-		// Act
-		router.ServeHTTP(rec, req)
+			if tc.expectedCode == http.StatusOK {
+				var product models.Product
+				err := json.Unmarshal(rec.Body.Bytes(), &product)
+				assert.NoError(t, err)
+				assert.Equal(t, "T-shirt Black", product.Name)
+				assert.Equal(t, 25.00, product.Price)
+				assert.Len(t, product.Variants, 1)
+			} else {
+				assert.JSONEq(t, tc.expectedBody, rec.Body.String())
+			}
+		})
+	}
+}
 
-		// Assert
-		assert.Equal(t, http.StatusNotFound, rec.Code)
-	})
+func TestProductHandler_Delete(t *testing.T) {
+	gin.SetMode(gin.TestMode)
 
-	t.Run("should return 500 when service returns error", func(t *testing.T) {
-		// Arrange
-		mockService.EXPECT().GetByID(uint(1)).Return(nil, errors.New("service error"))
+	testCases := []struct {
+		name         string
+		productID    string
+		setupDB      func(*gorm.DB) uint // Function to set up initial DB state
+		expectedCode int
+		expectedBody string
+	}{
+		{
+			name:      "should return 204 when product is deleted successfully",
+			productID: "1",
+			setupDB: func(db *gorm.DB) uint {
+				p := models.Product{Name: "Product to Delete", Price: 10}
+				db.Create(&p)
+				return p.ID
+			},
+			expectedCode: http.StatusNoContent,
+		},
+		{
+			name:         "should return 404 when product not found for deletion",
+			productID:    "999",
+			setupDB:      func(db *gorm.DB) uint { return 0 }, // No product in DB
+			expectedCode: http.StatusNotFound,
+			expectedBody: `{"error":"Product not found"}`,
+		},
+	}
 
-		req, _ := http.NewRequest(http.MethodGet, "/products/1", nil)
-		rec := httptest.NewRecorder()
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			db := setupTestDB(t)
+			productID := tc.setupDB(db)
+			handler := NewProductHandler(db)
+			router := gin.Default()
+			api := router.Group("/api")
+			handler.Register(api)
 
-		// Act
-		router.ServeHTTP(rec, req)
+			idStr := tc.productID
+			if productID != 0 {
+				idStr = strconv.Itoa(int(productID))
+			}
 
-		// Assert
-		assert.Equal(t, http.StatusInternalServerError, rec.Code)
-	})
+			req, _ := http.NewRequest(http.MethodDelete, "/api/products/"+idStr, nil)
+			rec := httptest.NewRecorder()
+
+			router.ServeHTTP(rec, req)
+
+			assert.Equal(t, tc.expectedCode, rec.Code)
+			if tc.expectedCode != http.StatusNoContent {
+				assert.JSONEq(t, tc.expectedBody, rec.Body.String())
+			}
+
+			if tc.expectedCode == http.StatusNoContent {
+				var product models.Product
+				err := db.First(&product, idStr).Error
+				assert.Error(t, err) // Should not find the product
+				assert.True(t, errors.Is(err, gorm.ErrRecordNotFound))
+			}
+		})
+	}
 }

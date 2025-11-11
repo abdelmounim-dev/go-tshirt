@@ -4,9 +4,9 @@ import "time"
 
 type Product struct {
 	ID          uint             `json:"id" gorm:"primaryKey"`
-	Name        string           `json:"name"`
+	Name        string           `json:"name" validate:"required"`
 	Description string           `json:"description"`
-	Price       float64          `json:"price"`
+	Price       float64          `json:"price" validate:"required,gt=0"`
 	ImageURL    string           `json:"image_url"`
 	Variants    []ProductVariant `json:"variants" gorm:"foreignKey:ProductID"`
 	CreatedAt   time.Time        `json:"created_at"`

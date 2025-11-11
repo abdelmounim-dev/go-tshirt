@@ -1,12 +1,11 @@
 package api
 
 import (
-	"github.com/gin-gonic/gin"
 	"github.com/abdelmounim-dev/go-tshirt/internal/api/handlers"
 	"github.com/abdelmounim-dev/go-tshirt/internal/config"
 	"github.com/abdelmounim-dev/go-tshirt/internal/db"
-	"github.com/abdelmounim-dev/go-tshirt/internal/repository"
-	"github.com/abdelmounim-dev/go-tshirt/internal/service"
+	"github.com/abdelmounim-dev/go-tshirt/internal/models"
+	"github.com/gin-gonic/gin"
 )
 
 func NewRouter(cfg config.Config) *gin.Engine {
@@ -17,14 +16,16 @@ func NewRouter(cfg config.Config) *gin.Engine {
 		panic(err)
 	}
 
-	repo := repository.NewProductRepo(database)
-	_ = repo.AutoMigrate()
+	// Auto-migrate models
+	err = database.AutoMigrate(&models.Product{}, &models.ProductVariant{})
+	if err != nil {
+		panic(err)
+	}
 
-	svc := service.NewProductService(repo)
-	handler := handlers.NewProductHandler(svc)
+	productHandler := handlers.NewProductHandler(database)
 
-	api := r.Group("/api/products")
-	handler.Register(api)
+	api := r.Group("/api")
+	productHandler.Register(api)
 
 	return r
 }

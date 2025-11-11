@@ -3,33 +3,36 @@ package handlers
 import (
 	"errors"
 	"net/http"
-	"strconv"
 
-	custom_errors "github.com/abdelmounim-dev/go-tshirt/internal/errors"
 	"github.com/abdelmounim-dev/go-tshirt/internal/models"
-	"github.com/abdelmounim-dev/go-tshirt/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/go-playground/validator/v10"
+	"gorm.io/gorm"
 )
 
 type ProductHandler struct {
-	svc service.ProductServiceInterface
+	db       *gorm.DB
+	validate *validator.Validate
 }
 
-func NewProductHandler(svc service.ProductServiceInterface) *ProductHandler {
-	return &ProductHandler{svc: svc}
+func NewProductHandler(db *gorm.DB) *ProductHandler {
+	return &ProductHandler{
+		db:       db,
+		validate: validator.New(),
+	}
 }
 
 func (h *ProductHandler) Register(r *gin.RouterGroup) {
-	r.GET("/", h.GetAll)
-	r.GET("/:id", h.GetByID)
-	r.POST("/", h.Create)
-	r.PUT("/:id", h.Update)
-	r.DELETE("/:id", h.Delete)
+	r.GET("/products", h.GetAll)
+	r.GET("/products/:id", h.GetByID)
+	r.POST("/products", h.Create)
+	r.PUT("/products/:id", h.Update)
+	r.DELETE("/products/:id", h.Delete)
 }
 
 func (h *ProductHandler) GetAll(c *gin.Context) {
-	products, err := h.svc.GetAll()
-	if err != nil {
+	var products []models.Product
+	if err := h.db.Preload("Variants").Find(&products).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -37,12 +40,11 @@ func (h *ProductHandler) GetAll(c *gin.Context) {
 }
 
 func (h *ProductHandler) GetByID(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
-	product, err := h.svc.GetByID(uint(id))
-	if err != nil {
-		var notFoundErr *custom_errors.NotFoundError
-		if errors.As(err, &notFoundErr) {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+	id := c.Param("id")
+	var product models.Product
+	if err := h.db.Preload("Variants").First(&product, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -57,12 +59,13 @@ func (h *ProductHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := h.svc.Create(&p); err != nil {
-		var validationErr *custom_errors.ValidationError
-		if errors.As(err, &validationErr) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
+
+	if err := h.validate.Struct(p); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := h.db.Create(&p).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -70,19 +73,30 @@ func (h *ProductHandler) Create(c *gin.Context) {
 }
 
 func (h *ProductHandler) Update(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
+	id := c.Param("id")
 	var p models.Product
 	if err := c.ShouldBindJSON(&p); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	p.ID = uint(id)
-	if err := h.svc.Update(&p); err != nil {
-		var validationErr *custom_errors.ValidationError
-		if errors.As(err, &validationErr) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+
+	if err := h.validate.Struct(p); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var existingProduct models.Product
+	if err := h.db.First(&existingProduct, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
 			return
 		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	p.ID = existingProduct.ID // Ensure the ID from the URL is used
+	if err := h.db.Save(&p).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -90,9 +104,14 @@ func (h *ProductHandler) Update(c *gin.Context) {
 }
 
 func (h *ProductHandler) Delete(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
-	if err := h.svc.Delete(uint(id)); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	id := c.Param("id")
+	result := h.db.Delete(&models.Product{}, id)
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
+		return
+	}
+	if result.RowsAffected == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
 		return
 	}
 	c.Status(http.StatusNoContent)
