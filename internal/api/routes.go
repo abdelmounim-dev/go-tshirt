@@ -21,6 +21,9 @@ func SetupRouter(db *gorm.DB) *gin.Engine {
 
 		cartHandler := handlers.NewCartHandler(db)
 		cartHandler.Register(api)
+
+		recommendationHandler := handlers.NewRecommendationHandler(db)
+		recommendationHandler.Register(api)
 	}
 
 	return r
