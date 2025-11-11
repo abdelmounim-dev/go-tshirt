@@ -46,6 +46,18 @@ func TestProductHandler_Create(t *testing.T) {
 			expectedBody: `{"error":"Key: 'Product.Price' Error:Field validation for 'Price' failed on the 'required' tag"}`,
 		},
 		{
+			name:         "should return 400 when variant color is empty",
+			product:      models.Product{Name: "T-shirt", Price: 10, Variants: []models.ProductVariant{{Color: "", Size: "M", Stock: 10}}},
+			expectedCode: http.StatusBadRequest,
+			expectedBody: `{"error":"Key: 'Product.Variants[0].Color' Error:Field validation for 'Color' failed on the 'required' tag"}`,
+		},
+		{
+			name:         "should return 400 when variant size is empty",
+			product:      models.Product{Name: "T-shirt", Price: 10, Variants: []models.ProductVariant{{Color: "Black", Size: "", Stock: 10}}},
+			expectedCode: http.StatusBadRequest,
+			expectedBody: `{"error":"Key: 'Product.Variants[0].Size' Error:Field validation for 'Size' failed on the 'required' tag"}`,
+		},
+		{
 			name:         "should return 201 when product is created successfully",
 			product:      models.Product{Name: "T-shirt", Price: 10},
 			expectedCode: http.StatusCreated,
@@ -122,6 +134,30 @@ func TestProductHandler_Update(t *testing.T) {
 			},
 			expectedCode: http.StatusBadRequest,
 			expectedBody: `{"error":"Key: 'Product.Price' Error:Field validation for 'Price' failed on the 'required' tag"}`,
+		},
+		{
+			name:      "should return 400 when variant color is empty",
+			productID: "1",
+			product:   models.Product{Name: "T-shirt", Price: 10, Variants: []models.ProductVariant{{Color: "", Size: "M", Stock: 10}}},
+			setupDB: func(db *gorm.DB) uint {
+				p := models.Product{Name: "Old Name", Price: 50}
+				db.Create(&p)
+				return p.ID
+			},
+			expectedCode: http.StatusBadRequest,
+			expectedBody: `{"error":"Key: 'Product.Variants[0].Color' Error:Field validation for 'Color' failed on the 'required' tag"}`,
+		},
+		{
+			name:      "should return 400 when variant size is empty",
+			productID: "1",
+			product:   models.Product{Name: "T-shirt", Price: 10, Variants: []models.ProductVariant{{Color: "Black", Size: "", Stock: 10}}},
+			setupDB: func(db *gorm.DB) uint {
+				p := models.Product{Name: "Old Name", Price: 50}
+				db.Create(&p)
+				return p.ID
+			},
+			expectedCode: http.StatusBadRequest,
+			expectedBody: `{"error":"Key: 'Product.Variants[0].Size' Error:Field validation for 'Size' failed on the 'required' tag"}`,
 		},
 		{
 			name:         "should return 404 when product not found",

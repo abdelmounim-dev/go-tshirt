@@ -8,15 +8,15 @@ type Product struct {
 	Description string           `json:"description"`
 	Price       float64          `json:"price" validate:"required,gt=0"`
 	ImageURL    string           `json:"image_url"`
-	Variants    []ProductVariant `json:"variants" gorm:"foreignKey:ProductID"`
+		Variants []ProductVariant `json:"variants" gorm:"foreignKey:ProductID" validate:"dive"`
 	CreatedAt   time.Time        `json:"created_at"`
 	UpdatedAt   time.Time        `json:"updated_at"`
 }
 
 type ProductVariant struct {
-	ID        uint    `json:"id" gorm:"primaryKey"`
-	ProductID uint    `json:"product_id"`
-	Color     string  `json:"color"`
-	Size      string  `json:"size"`
-	Stock     uint    `json:"stock"`
+	ID        uint   `json:"id" gorm:"primaryKey"`
+	ProductID uint   `json:"product_id"`
+	Color     string `json:"color" validate:"required"`
+	Size      string `json:"size" validate:"required"`
+	Stock     uint   `json:"stock" validate:"required,gte=0"`
 }
