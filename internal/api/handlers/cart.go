@@ -48,33 +48,70 @@ func (h *CartHandler) AddItem(c *gin.Context) {
 	// For simplicity, assume a single cart with ID 1
 	item.CartID = 1
 
-	// Check if product exists
-	var product models.Product
-	if err := h.db.First(&product, item.ProductID).Error; err != nil {
+	// Check if product variant exists and has enough stock
+	var variant models.ProductVariant
+	if err := h.db.First(&variant, item.ProductVariantID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "Product variant not found"})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	if err := h.validate.Struct(item); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if variant.Stock < item.Quantity {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient stock"})
 		return
 	}
 
-	if err := h.db.Create(&item).Error; err != nil {
+	// Check if the item already exists in the cart
+	var existingItem models.CartItem
+	err := h.db.Where("cart_id = ? AND product_variant_id = ?", item.CartID, item.ProductVariantID).First(&existingItem).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	tx := h.db.Begin()
+
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		// Create new cart item
+		if err := tx.Create(&item).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+	} else {
+		// Update quantity of existing item
+		existingItem.Quantity += item.Quantity
+		if err := tx.Save(&existingItem).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		item = existingItem
+	}
+
+	// Decrement stock
+	variant.Stock -= item.Quantity
+	if err := tx.Save(&variant).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
 	c.JSON(http.StatusCreated, item)
 }
 
 func (h *CartHandler) GetCart(c *gin.Context) {
 	var cart models.Cart
 	// For simplicity, assume a single cart with ID 1
-	if err := h.db.Preload("Items.Product").First(&cart, 1).Error; err != nil {
+	if err := h.db.Preload("Items.ProductVariant").First(&cart, 1).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Cart not found"})
 			return

@@ -11,6 +11,7 @@ import (
 	"github.com/abdelmounim-dev/go-tshirt/internal/models"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	"gorm.io/gorm"
 )
 
 func TestCartHandler_CreateCart(t *testing.T) {
@@ -38,42 +39,117 @@ func TestCartHandler_CreateCart(t *testing.T) {
 func TestCartHandler_AddItem(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	t.Run("should add an item to the cart successfully", func(t *testing.T) {
-		db := setupTestDB(t)
-		err := db.AutoMigrate(&models.Cart{}, &models.CartItem{}, &models.Product{})
-		assert.NoError(t, err)
+	testCases := []struct {
+		name             string
+		setup            func(db *gorm.DB) (map[string]interface{}, uint)
+		expectedCode     int
+		expectedStock    uint
+		expectedQuantity uint
+	}{
+		{
+			name: "should add an item to the cart successfully",
+			setup: func(db *gorm.DB) (map[string]interface{}, uint) {
+				product := models.Product{Name: "T-shirt", Price: 20}
+				db.Create(&product)
+				variant := models.ProductVariant{ProductID: product.ID, Color: "Black", Size: "M", Stock: 10}
+				db.Create(&variant)
+				cart := models.Cart{}
+				db.Create(&cart)
+				return map[string]interface{}{
+					"product_variant_id": variant.ID,
+					"quantity":           1,
+					"cart_id":            cart.ID,
+				}, variant.ID
+			},
+			expectedCode:     http.StatusCreated,
+			expectedStock:    9,
+			expectedQuantity: 1,
+		},
+		{
+			name: "should update the quantity of an existing item",
+			setup: func(db *gorm.DB) (map[string]interface{}, uint) {
+				product := models.Product{Name: "T-shirt", Price: 20}
+				db.Create(&product)
+				variant := models.ProductVariant{ProductID: product.ID, Color: "Black", Size: "M", Stock: 10}
+				db.Create(&variant)
+				cart := models.Cart{}
+				db.Create(&cart)
+				db.Create(&models.CartItem{CartID: cart.ID, ProductVariantID: variant.ID, Quantity: 1})
+				return map[string]interface{}{
+					"product_variant_id": variant.ID,
+					"quantity":           2,
+					"cart_id":            cart.ID,
+				}, variant.ID
+			},
+			expectedCode:     http.StatusCreated,
+			expectedStock:    7,
+			expectedQuantity: 3,
+		},
+		{
+			name: "should return an error for insufficient stock",
+			setup: func(db *gorm.DB) (map[string]interface{}, uint) {
+				product := models.Product{Name: "T-shirt", Price: 20}
+				db.Create(&product)
+				variant := models.ProductVariant{ProductID: product.ID, Color: "Black", Size: "M", Stock: 5}
+				db.Create(&variant)
+				cart := models.Cart{}
+				db.Create(&cart)
+				return map[string]interface{}{
+					"product_variant_id": variant.ID,
+					"quantity":           10,
+					"cart_id":            cart.ID,
+				}, variant.ID
+			},
+			expectedCode: http.StatusBadRequest,
+		},
+		{
+			name: "should return an error for non-existent variant",
+			setup: func(db *gorm.DB) (map[string]interface{}, uint) {
+				cart := models.Cart{}
+				db.Create(&cart)
+				return map[string]interface{}{
+					"product_variant_id": 999,
+					"quantity":           1,
+					"cart_id":            cart.ID,
+				}, 0
+			},
+			expectedCode: http.StatusNotFound,
+		},
+	}
 
-		// Create a product to add to the cart
-		product := models.Product{Name: "T-shirt", Price: 20}
-		db.Create(&product)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			db := setupTestDB(t)
+			err := db.AutoMigrate(&models.Cart{}, &models.CartItem{}, &models.Product{}, &models.ProductVariant{})
+			assert.NoError(t, err)
 
-		// Create a cart
-		cart := models.Cart{}
-		db.Create(&cart)
+			item, variantID := tc.setup(db)
 
-		handler := NewCartHandler(db)
-		router := gin.Default()
-		api := router.Group("/api")
-		handler.Register(api)
+			handler := NewCartHandler(db)
+			router := gin.Default()
+			api := router.Group("/api")
+			handler.Register(api)
 
-		item := map[string]interface{}{
-			"product_id": product.ID,
-			"quantity":   1,
-			"cart_id":    cart.ID,
-		}
-		body, _ := json.Marshal(item)
-		req, _ := http.NewRequest(http.MethodPost, "/api/cart/items", bytes.NewBuffer(body))
-		rec := httptest.NewRecorder()
+			body, _ := json.Marshal(item)
+			req, _ := http.NewRequest(http.MethodPost, "/api/cart/items", bytes.NewBuffer(body))
+			rec := httptest.NewRecorder()
 
-		router.ServeHTTP(rec, req)
+			router.ServeHTTP(rec, req)
 
-		assert.Equal(t, http.StatusCreated, rec.Code)
+			assert.Equal(t, tc.expectedCode, rec.Code)
 
-		var createdItem models.CartItem
-		json.Unmarshal(rec.Body.Bytes(), &createdItem)
-		assert.Equal(t, item["product_id"].(uint), createdItem.ProductID)
-		assert.Equal(t, uint(item["quantity"].(int)), createdItem.Quantity)
-	})
+			if tc.expectedCode == http.StatusCreated {
+				var createdItem models.CartItem
+				json.Unmarshal(rec.Body.Bytes(), &createdItem)
+				assert.Equal(t, item["product_variant_id"].(uint), createdItem.ProductVariantID)
+				assert.Equal(t, tc.expectedQuantity, createdItem.Quantity)
+
+				var updatedVariant models.ProductVariant
+				db.First(&updatedVariant, variantID)
+				assert.Equal(t, tc.expectedStock, updatedVariant.Stock)
+			}
+		})
+	}
 }
 
 func TestCartHandler_GetCart(t *testing.T) {
@@ -81,15 +157,17 @@ func TestCartHandler_GetCart(t *testing.T) {
 
 	t.Run("should get the cart with items successfully", func(t *testing.T) {
 		db := setupTestDB(t)
-		err := db.AutoMigrate(&models.Cart{}, &models.CartItem{}, &models.Product{})
+		err := db.AutoMigrate(&models.Cart{}, &models.CartItem{}, &models.Product{}, &models.ProductVariant{})
 		assert.NoError(t, err)
 
-		// Create a product and add it to the cart
+		// Create a product and variant and add it to the cart
 		product := models.Product{Name: "T-shirt", Price: 20}
 		db.Create(&product)
+		variant := models.ProductVariant{ProductID: product.ID, Color: "Black", Size: "M", Stock: 10}
+		db.Create(&variant)
 		cart := models.Cart{}
 		db.Create(&cart)
-		cartItem := models.CartItem{CartID: cart.ID, ProductID: product.ID, Quantity: 2}
+		cartItem := models.CartItem{CartID: cart.ID, ProductVariantID: variant.ID, Quantity: 2}
 		db.Create(&cartItem)
 
 		handler := NewCartHandler(db)
@@ -109,7 +187,7 @@ func TestCartHandler_GetCart(t *testing.T) {
 		assert.Equal(t, cart.ID, fetchedCart.ID)
 		assert.Len(t, fetchedCart.Items, 1)
 		assert.Equal(t, cartItem.ID, fetchedCart.Items[0].ID)
-		assert.Equal(t, product.Name, fetchedCart.Items[0].Product.Name)
+		assert.Equal(t, variant.Color, fetchedCart.Items[0].ProductVariant.Color)
 	})
 }
 
@@ -118,15 +196,17 @@ func TestCartHandler_RemoveItem(t *testing.T) {
 
 	t.Run("should remove an item from the cart successfully", func(t *testing.T) {
 		db := setupTestDB(t)
-		err := db.AutoMigrate(&models.Cart{}, &models.CartItem{}, &models.Product{})
+		err := db.AutoMigrate(&models.Cart{}, &models.CartItem{}, &models.Product{}, &models.ProductVariant{})
 		assert.NoError(t, err)
 
-		// Create a product and add it to the cart
+		// Create a product and variant and add it to the cart
 		product := models.Product{Name: "T-shirt", Price: 20}
 		db.Create(&product)
+		variant := models.ProductVariant{ProductID: product.ID, Color: "Black", Size: "M", Stock: 10}
+		db.Create(&variant)
 		cart := models.Cart{}
 		db.Create(&cart)
-		cartItem := models.CartItem{CartID: cart.ID, ProductID: product.ID, Quantity: 1}
+		cartItem := models.CartItem{CartID: cart.ID, ProductVariantID: variant.ID, Quantity: 1}
 		db.Create(&cartItem)
 
 		handler := NewCartHandler(db)

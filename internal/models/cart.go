@@ -12,9 +12,9 @@ type Cart struct {
 
 // CartItem represents an item in a shopping cart
 type CartItem struct {
-	ID         uint    `json:"id" gorm:"primaryKey"`
-	CartID     uint    `json:"cart_id"`
-	ProductID  uint    `json:"product_id"`
-	Product    Product `json:"product,omitempty" gorm:"foreignKey:ProductID" validate:"omitempty"`
-	Quantity   uint    `json:"quantity" validate:"required,gte=1"`
+	ID               uint           `json:"id" gorm:"primaryKey"`
+	CartID           uint           `json:"cart_id"`
+	ProductVariantID uint           `json:"product_variant_id"`
+	ProductVariant   ProductVariant `json:"product_variant,omitempty" gorm:"foreignKey:ProductVariantID" validate:"omitempty"`
+	Quantity         uint           `json:"quantity" validate:"required,gte=1"`
 }
