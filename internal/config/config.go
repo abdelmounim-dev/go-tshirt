@@ -1,13 +1,13 @@
 package config
 
 type Config struct {
-	Address string
-	DBPath  string
+	DBPath        string
+	ServerAddress string
 }
 
 func Load() Config {
 	return Config{
-		Address: ":8080",
-		DBPath:  "data.db",
+		DBPath:        "data.db",
+		ServerAddress: ":8080",
 	}
 }

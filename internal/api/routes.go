@@ -2,30 +2,26 @@ package api
 
 import (
 	"github.com/abdelmounim-dev/go-tshirt/internal/api/handlers"
-	"github.com/abdelmounim-dev/go-tshirt/internal/config"
-	"github.com/abdelmounim-dev/go-tshirt/internal/db"
 	"github.com/abdelmounim-dev/go-tshirt/internal/models"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
-func NewRouter(cfg config.Config) *gin.Engine {
+func SetupRouter(db *gorm.DB) *gin.Engine {
 	r := gin.Default()
 
-	database, err := db.NewSQLite(cfg.DBPath)
-	if err != nil {
-		panic(err)
-	}
-
 	// Auto-migrate models
-	err = database.AutoMigrate(&models.Product{}, &models.ProductVariant{})
-	if err != nil {
-		panic(err)
-	}
+	db.AutoMigrate(&models.Product{}, &models.ProductVariant{}, &models.Cart{}, &models.CartItem{})
 
-	productHandler := handlers.NewProductHandler(database)
-
+	// Setup routes
 	api := r.Group("/api")
-	productHandler.Register(api)
+	{
+		productHandler := handlers.NewProductHandler(db)
+		productHandler.Register(api)
+
+		cartHandler := handlers.NewCartHandler(db)
+		cartHandler.Register(api)
+	}
 
 	return r
 }
