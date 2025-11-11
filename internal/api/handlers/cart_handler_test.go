@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/abdelmounim-dev/go-tshirt/internal/models"
@@ -72,5 +73,77 @@ func TestCartHandler_AddItem(t *testing.T) {
 		json.Unmarshal(rec.Body.Bytes(), &createdItem)
 		assert.Equal(t, item["product_id"].(uint), createdItem.ProductID)
 		assert.Equal(t, uint(item["quantity"].(int)), createdItem.Quantity)
+	})
+}
+
+func TestCartHandler_GetCart(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("should get the cart with items successfully", func(t *testing.T) {
+		db := setupTestDB(t)
+		err := db.AutoMigrate(&models.Cart{}, &models.CartItem{}, &models.Product{})
+		assert.NoError(t, err)
+
+		// Create a product and add it to the cart
+		product := models.Product{Name: "T-shirt", Price: 20}
+		db.Create(&product)
+		cart := models.Cart{}
+		db.Create(&cart)
+		cartItem := models.CartItem{CartID: cart.ID, ProductID: product.ID, Quantity: 2}
+		db.Create(&cartItem)
+
+		handler := NewCartHandler(db)
+		router := gin.Default()
+		api := router.Group("/api")
+		handler.Register(api)
+
+		req, _ := http.NewRequest(http.MethodGet, "/api/cart", nil)
+		rec := httptest.NewRecorder()
+
+		router.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		var fetchedCart models.Cart
+		json.Unmarshal(rec.Body.Bytes(), &fetchedCart)
+		assert.Equal(t, cart.ID, fetchedCart.ID)
+		assert.Len(t, fetchedCart.Items, 1)
+		assert.Equal(t, cartItem.ID, fetchedCart.Items[0].ID)
+		assert.Equal(t, product.Name, fetchedCart.Items[0].Product.Name)
+	})
+}
+
+func TestCartHandler_RemoveItem(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("should remove an item from the cart successfully", func(t *testing.T) {
+		db := setupTestDB(t)
+		err := db.AutoMigrate(&models.Cart{}, &models.CartItem{}, &models.Product{})
+		assert.NoError(t, err)
+
+		// Create a product and add it to the cart
+		product := models.Product{Name: "T-shirt", Price: 20}
+		db.Create(&product)
+		cart := models.Cart{}
+		db.Create(&cart)
+		cartItem := models.CartItem{CartID: cart.ID, ProductID: product.ID, Quantity: 1}
+		db.Create(&cartItem)
+
+		handler := NewCartHandler(db)
+		router := gin.Default()
+		api := router.Group("/api")
+		handler.Register(api)
+
+		req, _ := http.NewRequest(http.MethodDelete, "/api/cart/items/"+strconv.Itoa(int(cartItem.ID)), nil)
+		rec := httptest.NewRecorder()
+
+		router.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusNoContent, rec.Code)
+
+		// Verify the item was deleted
+		var deletedItem models.CartItem
+		err = db.First(&deletedItem, cartItem.ID).Error
+		assert.Error(t, err) // Should not find the item
 	})
 }

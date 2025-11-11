@@ -72,9 +72,29 @@ func (h *CartHandler) AddItem(c *gin.Context) {
 }
 
 func (h *CartHandler) GetCart(c *gin.Context) {
-	// Implementation to follow
+	var cart models.Cart
+	// For simplicity, assume a single cart with ID 1
+	if err := h.db.Preload("Items.Product").First(&cart, 1).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Cart not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, cart)
 }
 
 func (h *CartHandler) RemoveItem(c *gin.Context) {
-	// Implementation to follow
+	id := c.Param("id")
+	result := h.db.Delete(&models.CartItem{}, id)
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
+		return
+	}
+	if result.RowsAffected == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Cart item not found"})
+		return
+	}
+	c.Status(http.StatusNoContent)
 }
