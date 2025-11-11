@@ -1,0 +1,40 @@
+# Binaries for programs and plugins
+*.exe
+*.dll
+*.so
+*.dylib
+*.o
+*.a
+
+# Test binary, generated with `go test -c`
+*.test
+
+# Production-ready compiled binaries
+bin/
+
+# Compiled package archives
+pkg/
+
+# Dependency directories (remove the comment below to include it)
+# vendor/
+
+# Log files
+*.log
+
+# Local database file
+data.db
+
+# IDE-specific files
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*~
+tmp/
+temp/
