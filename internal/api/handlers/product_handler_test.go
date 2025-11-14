@@ -394,3 +394,136 @@ func TestProductHandler_Delete(t *testing.T) {
 		})
 	}
 }
+
+func TestProductHandler_GetAllVariants(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupTestDB(t)
+	handler := NewProductHandler(db)
+	router := gin.Default()
+	api := router.Group("/api")
+	handler.Register(api)
+
+	product := models.Product{Name: "T-shirt", Price: 20}
+	db.Create(&product)
+	variant1 := models.ProductVariant{ProductID: product.ID, Color: "Black", Size: "M", Stock: 10}
+	variant2 := models.ProductVariant{ProductID: product.ID, Color: "White", Size: "L", Stock: 5}
+	db.Create(&variant1)
+	db.Create(&variant2)
+
+	req, _ := http.NewRequest(http.MethodGet, "/api/products/"+strconv.Itoa(int(product.ID))+"/variants", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	var variants []models.ProductVariant
+	json.Unmarshal(rec.Body.Bytes(), &variants)
+	assert.Len(t, variants, 2)
+}
+
+func TestProductHandler_GetVariantByID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupTestDB(t)
+	handler := NewProductHandler(db)
+	router := gin.Default()
+	api := router.Group("/api")
+	handler.Register(api)
+
+	product := models.Product{Name: "T-shirt", Price: 20}
+	db.Create(&product)
+	variant := models.ProductVariant{ProductID: product.ID, Color: "Black", Size: "M", Stock: 10}
+	db.Create(&variant)
+
+	req, _ := http.NewRequest(http.MethodGet, "/api/products/"+strconv.Itoa(int(product.ID))+"/variants/"+strconv.Itoa(int(variant.ID)), nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	var fetchedVariant models.ProductVariant
+	json.Unmarshal(rec.Body.Bytes(), &fetchedVariant)
+	assert.Equal(t, variant.ID, fetchedVariant.ID)
+	assert.Equal(t, variant.Color, fetchedVariant.Color)
+}
+
+func TestProductHandler_CreateVariant(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupTestDB(t)
+	handler := NewProductHandler(db)
+	router := gin.Default()
+	api := router.Group("/api")
+	handler.Register(api)
+
+	product := models.Product{Name: "T-shirt", Price: 20}
+	db.Create(&product)
+
+	variantData := gin.H{
+		"color": "Blue",
+		"size":  "S",
+		"stock": 20,
+	}
+	body, _ := json.Marshal(variantData)
+	req, _ := http.NewRequest(http.MethodPost, "/api/products/"+strconv.Itoa(int(product.ID))+"/variants", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusCreated, rec.Code)
+	var createdVariant models.ProductVariant
+	json.Unmarshal(rec.Body.Bytes(), &createdVariant)
+	assert.Equal(t, uint(product.ID), createdVariant.ProductID)
+	assert.Equal(t, "Blue", createdVariant.Color)
+}
+
+func TestProductHandler_UpdateVariant(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupTestDB(t)
+	handler := NewProductHandler(db)
+	router := gin.Default()
+	api := router.Group("/api")
+	handler.Register(api)
+
+	product := models.Product{Name: "T-shirt", Price: 20}
+	db.Create(&product)
+	variant := models.ProductVariant{ProductID: product.ID, Color: "Black", Size: "M", Stock: 10}
+	db.Create(&variant)
+
+	updateData := gin.H{
+		"color": "Red",
+		"size":  "M",
+		"stock": 5,
+	}
+	body, _ := json.Marshal(updateData)
+	req, _ := http.NewRequest(http.MethodPut, "/api/products/"+strconv.Itoa(int(product.ID))+"/variants/"+strconv.Itoa(int(variant.ID)), bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	var updatedVariant models.ProductVariant
+	db.First(&updatedVariant, variant.ID)
+	assert.Equal(t, "Red", updatedVariant.Color)
+	assert.Equal(t, uint(5), updatedVariant.Stock)
+}
+
+func TestProductHandler_DeleteVariant(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupTestDB(t)
+	handler := NewProductHandler(db)
+	router := gin.Default()
+	api := router.Group("/api")
+	handler.Register(api)
+
+	product := models.Product{Name: "T-shirt", Price: 20}
+	db.Create(&product)
+	variant := models.ProductVariant{ProductID: product.ID, Color: "Black", Size: "M", Stock: 10}
+	db.Create(&variant)
+
+	req, _ := http.NewRequest(http.MethodDelete, "/api/products/"+strconv.Itoa(int(product.ID))+"/variants/"+strconv.Itoa(int(variant.ID)), nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+	var deletedVariant models.ProductVariant
+	err := db.First(&deletedVariant, variant.ID).Error
+	assert.Error(t, err)
+	assert.True(t, errors.Is(err, gorm.ErrRecordNotFound))
+}
