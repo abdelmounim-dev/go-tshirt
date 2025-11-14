@@ -8,7 +8,7 @@ type Product struct {
 	Description string           `json:"description"`
 	Price       float64          `json:"price" validate:"required,gt=0"`
 	ImageURL    string           `json:"image_url"`
-		Variants []ProductVariant `json:"variants" gorm:"foreignKey:ProductID" validate:"dive"`
+	Variants    []ProductVariant `json:"variants" gorm:"foreignKey:ProductID" validate:"dive"`
 	CreatedAt   time.Time        `json:"created_at"`
 	UpdatedAt   time.Time        `json:"updated_at"`
 }

@@ -30,8 +30,34 @@ func (h *CartHandler) Register(r *gin.RouterGroup) {
 		cartRoutes.GET("/:cart_id", h.GetCart)
 		cartRoutes.POST("/:cart_id/items", h.AddItem)
 		cartRoutes.DELETE("/:cart_id/items/:item_id", h.RemoveItem)
+		cartRoutes.DELETE("/:cart_id", h.DeleteCart)
 	}
 }
+
+func (h *CartHandler) DeleteCart(c *gin.Context) {
+	cartID := c.Param("cart_id")
+
+	// First, delete all items in the cart
+	if err := h.db.Where("cart_id = ?", cartID).Delete(&models.CartItem{}).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete cart items"})
+		return
+	}
+
+	// Then, delete the cart itself
+	result := h.db.Delete(&models.Cart{}, cartID)
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
+		return
+	}
+
+	if result.RowsAffected == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Cart not found"})
+		return
+	}
+
+	c.Status(http.StatusNoContent)
+}
+
 
 func (h *CartHandler) CreateCart(c *gin.Context) {
 	var cart models.Cart

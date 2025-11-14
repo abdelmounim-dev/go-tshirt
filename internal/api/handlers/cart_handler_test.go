@@ -224,3 +224,40 @@ func TestCartHandler_RemoveItem(t *testing.T) {
 	})
 }
 
+func TestCartHandler_DeleteCart(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("should delete a cart and its items successfully", func(t *testing.T) {
+		db := setupTestDB(t)
+		err := db.AutoMigrate(&models.Cart{}, &models.CartItem{}, &models.Product{}, &models.ProductVariant{})
+		assert.NoError(t, err)
+
+		// Create a cart with an item
+		cart := models.Cart{}
+		db.Create(&cart)
+		cartItem := models.CartItem{CartID: cart.ID, ProductVariantID: 1, Quantity: 1}
+		db.Create(&cartItem)
+
+		handler := NewCartHandler(db)
+		router := gin.Default()
+		api := router.Group("/api")
+		handler.Register(api)
+
+		req, _ := http.NewRequest(http.MethodDelete, "/api/cart/"+strconv.Itoa(int(cart.ID)), nil)
+		rec := httptest.NewRecorder()
+
+		router.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusNoContent, rec.Code)
+
+		// Verify the cart was deleted
+		var deletedCart models.Cart
+		err = db.First(&deletedCart, cart.ID).Error
+		assert.Error(t, err) // Should not find the cart
+
+		// Verify the cart item was deleted
+		var deletedItem models.CartItem
+		err = db.First(&deletedItem, cartItem.ID).Error
+		assert.Error(t, err) // Should not find the item
+	})
+}
