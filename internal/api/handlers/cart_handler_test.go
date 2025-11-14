@@ -41,14 +41,14 @@ func TestCartHandler_AddItem(t *testing.T) {
 
 	testCases := []struct {
 		name             string
-		setup            func(db *gorm.DB) (map[string]interface{}, uint)
+		setup            func(db *gorm.DB) (map[string]interface{}, uint, uint)
 		expectedCode     int
 		expectedStock    uint
 		expectedQuantity uint
 	}{
 		{
 			name: "should add an item to the cart successfully",
-			setup: func(db *gorm.DB) (map[string]interface{}, uint) {
+			setup: func(db *gorm.DB) (map[string]interface{}, uint, uint) {
 				product := models.Product{Name: "T-shirt", Price: 20}
 				db.Create(&product)
 				variant := models.ProductVariant{ProductID: product.ID, Color: "Black", Size: "M", Stock: 10}
@@ -58,8 +58,7 @@ func TestCartHandler_AddItem(t *testing.T) {
 				return map[string]interface{}{
 					"product_variant_id": variant.ID,
 					"quantity":           1,
-					"cart_id":            cart.ID,
-				}, variant.ID
+				}, variant.ID, cart.ID
 			},
 			expectedCode:     http.StatusCreated,
 			expectedStock:    9,
@@ -67,7 +66,7 @@ func TestCartHandler_AddItem(t *testing.T) {
 		},
 		{
 			name: "should update the quantity of an existing item",
-			setup: func(db *gorm.DB) (map[string]interface{}, uint) {
+			setup: func(db *gorm.DB) (map[string]interface{}, uint, uint) {
 				product := models.Product{Name: "T-shirt", Price: 20}
 				db.Create(&product)
 				variant := models.ProductVariant{ProductID: product.ID, Color: "Black", Size: "M", Stock: 10}
@@ -78,8 +77,7 @@ func TestCartHandler_AddItem(t *testing.T) {
 				return map[string]interface{}{
 					"product_variant_id": variant.ID,
 					"quantity":           2,
-					"cart_id":            cart.ID,
-				}, variant.ID
+				}, variant.ID, cart.ID
 			},
 			expectedCode:     http.StatusCreated,
 			expectedStock:    7,
@@ -87,7 +85,7 @@ func TestCartHandler_AddItem(t *testing.T) {
 		},
 		{
 			name: "should return an error for insufficient stock",
-			setup: func(db *gorm.DB) (map[string]interface{}, uint) {
+			setup: func(db *gorm.DB) (map[string]interface{}, uint, uint) {
 				product := models.Product{Name: "T-shirt", Price: 20}
 				db.Create(&product)
 				variant := models.ProductVariant{ProductID: product.ID, Color: "Black", Size: "M", Stock: 5}
@@ -97,21 +95,19 @@ func TestCartHandler_AddItem(t *testing.T) {
 				return map[string]interface{}{
 					"product_variant_id": variant.ID,
 					"quantity":           10,
-					"cart_id":            cart.ID,
-				}, variant.ID
+				}, variant.ID, cart.ID
 			},
 			expectedCode: http.StatusBadRequest,
 		},
 		{
 			name: "should return an error for non-existent variant",
-			setup: func(db *gorm.DB) (map[string]interface{}, uint) {
+			setup: func(db *gorm.DB) (map[string]interface{}, uint, uint) {
 				cart := models.Cart{}
 				db.Create(&cart)
 				return map[string]interface{}{
 					"product_variant_id": 999,
 					"quantity":           1,
-					"cart_id":            cart.ID,
-				}, 0
+				}, 0, cart.ID
 			},
 			expectedCode: http.StatusNotFound,
 		},
@@ -123,7 +119,7 @@ func TestCartHandler_AddItem(t *testing.T) {
 			err := db.AutoMigrate(&models.Cart{}, &models.CartItem{}, &models.Product{}, &models.ProductVariant{})
 			assert.NoError(t, err)
 
-			item, variantID := tc.setup(db)
+			item, variantID, cartID := tc.setup(db)
 
 			handler := NewCartHandler(db)
 			router := gin.Default()
@@ -131,7 +127,7 @@ func TestCartHandler_AddItem(t *testing.T) {
 			handler.Register(api)
 
 			body, _ := json.Marshal(item)
-			req, _ := http.NewRequest(http.MethodPost, "/api/cart/items", bytes.NewBuffer(body))
+			req, _ := http.NewRequest(http.MethodPost, "/api/cart/"+strconv.Itoa(int(cartID))+"/items", bytes.NewBuffer(body))
 			rec := httptest.NewRecorder()
 
 			router.ServeHTTP(rec, req)
@@ -175,7 +171,7 @@ func TestCartHandler_GetCart(t *testing.T) {
 		api := router.Group("/api")
 		handler.Register(api)
 
-		req, _ := http.NewRequest(http.MethodGet, "/api/cart", nil)
+		req, _ := http.NewRequest(http.MethodGet, "/api/cart/"+strconv.Itoa(int(cart.ID)), nil)
 		rec := httptest.NewRecorder()
 
 		router.ServeHTTP(rec, req)
@@ -214,7 +210,7 @@ func TestCartHandler_RemoveItem(t *testing.T) {
 		api := router.Group("/api")
 		handler.Register(api)
 
-		req, _ := http.NewRequest(http.MethodDelete, "/api/cart/items/"+strconv.Itoa(int(cartItem.ID)), nil)
+		req, _ := http.NewRequest(http.MethodDelete, "/api/cart/"+strconv.Itoa(int(cart.ID))+"/items/"+strconv.Itoa(int(cartItem.ID)), nil)
 		rec := httptest.NewRecorder()
 
 		router.ServeHTTP(rec, req)
@@ -227,3 +223,4 @@ func TestCartHandler_RemoveItem(t *testing.T) {
 		assert.Error(t, err) // Should not find the item
 	})
 }
+

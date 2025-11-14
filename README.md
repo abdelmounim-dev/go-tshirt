@@ -302,8 +302,6 @@ Manages the lifecycle of products and their variants.
 
 Manages the shopping cart functionality.
 
-**Important Note for Interviewers**: Currently, the cart implementation uses a **global cart** (hardcoded to ID `1`). This means all users interact with the same cart. This was a deliberate decision to simplify the initial implementation based on user feedback, deferring session-specific cart management to a later phase.
-
 #### 1. Create a new cart
 
 *   **Endpoint**: `POST /api/cart`
@@ -327,8 +325,10 @@ Manages the shopping cart functionality.
 
 #### 2. Add item to cart
 
-*   **Endpoint**: `POST /api/cart/items`
-*   **Description**: Adds a product variant to the global cart. If the variant is already in the cart, its quantity is updated. Stock is checked and decremented.
+*   **Endpoint**: `POST /api/cart/:cart_id/items`
+*   **Description**: Adds a product variant to the specified cart. If the variant is already in the cart, its quantity is updated. Stock is checked and decremented.
+*   **Path Parameters**:
+    *   `cart_id` (integer): The ID of the cart to add the item to.
 *   **Request Body**:
     ```json
     {
@@ -373,8 +373,10 @@ Manages the shopping cart functionality.
 
 #### 3. Get cart contents
 
-*   **Endpoint**: `GET /api/cart`
-*   **Description**: Retrieves the contents of the global cart, including product variant details.
+*   **Endpoint**: `GET /api/cart/:cart_id`
+*   **Description**: Retrieves the contents of the specified cart, including product variant details.
+*   **Path Parameters**:
+    *   `cart_id` (integer): The ID of the cart to retrieve.
 *   **Response (200 OK)**:
     ```json
     {
@@ -413,10 +415,11 @@ Manages the shopping cart functionality.
 
 #### 4. Remove item from cart
 
-*   **Endpoint**: `DELETE /api/cart/items/:id`
-*   **Description**: Removes a specific item from the global cart by its `CartItem` ID.
+*   **Endpoint**: `DELETE /api/cart/:cart_id/items/:item_id`
+*   **Description**: Removes a specific item from the specified cart by its `CartItem` ID.
 *   **Path Parameters**:
-    *   `id` (integer): The ID of the cart item to remove.
+    *   `cart_id` (integer): The ID of the cart from which to remove the item.
+    *   `item_id` (integer): The ID of the cart item to remove.
 *   **Response (204 No Content)**: (No response body)
 *   **Error Response (404 Not Found)**:
     ```json
@@ -544,7 +547,7 @@ type CartItem struct {
 *   **Phase 3 (Product Options and Availability)**: Fully implemented. Products support variants with color, size, and stock tracking.
 *   **Phase 4 (Shopping Cart API)**:
     *   **Stock Check**: Implemented and tested. Items are only added if stock is available, and stock is decremented upon addition.
-    *   **Global Cart**: Currently uses a hardcoded global cart (ID `1`). This was a deliberate decision to simplify the initial implementation and defer session-specific cart management to a later phase. This means all users share the same cart.
+    *   **Multi-Cart Support**: The cart API now supports multiple carts, with cart IDs specified in the URL for adding, retrieving, and removing items.
 *   **Phase 5 (Recommendations API)**: Implemented with a basic recommendation logic (by color).
 
 This project demonstrates a solid foundation for a Go REST API, adhering to TDD principles and clean architecture, with clear next steps for further development.

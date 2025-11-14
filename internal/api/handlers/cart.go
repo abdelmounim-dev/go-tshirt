@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/abdelmounim-dev/go-tshirt/internal/models"
 	"github.com/gin-gonic/gin"
@@ -23,10 +24,13 @@ func NewCartHandler(db *gorm.DB) *CartHandler {
 }
 
 func (h *CartHandler) Register(r *gin.RouterGroup) {
-	r.POST("/cart", h.CreateCart)
-	r.POST("/cart/items", h.AddItem)
-	r.GET("/cart", h.GetCart)
-	r.DELETE("/cart/items/:id", h.RemoveItem)
+	cartRoutes := r.Group("/cart")
+	{
+		cartRoutes.POST("", h.CreateCart)
+		cartRoutes.GET("/:cart_id", h.GetCart)
+		cartRoutes.POST("/:cart_id/items", h.AddItem)
+		cartRoutes.DELETE("/:cart_id/items/:item_id", h.RemoveItem)
+	}
 }
 
 func (h *CartHandler) CreateCart(c *gin.Context) {
@@ -39,14 +43,23 @@ func (h *CartHandler) CreateCart(c *gin.Context) {
 }
 
 func (h *CartHandler) AddItem(c *gin.Context) {
+	cartID := c.Param("cart_id")
+
 	var item models.CartItem
 	if err := c.ShouldBindJSON(&item); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// For simplicity, assume a single cart with ID 1
-	item.CartID = 1
+	item.CartID = 0 // Reset to avoid any passed in value
+	if _, err := strconv.Atoi(cartID); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid cart ID"})
+		return
+	}
+	
+	cid, _ := strconv.Atoi(cartID)
+	item.CartID = uint(cid)
+
 
 	// Check if product variant exists and has enough stock
 	var variant models.ProductVariant
@@ -109,9 +122,10 @@ func (h *CartHandler) AddItem(c *gin.Context) {
 }
 
 func (h *CartHandler) GetCart(c *gin.Context) {
+	cartID := c.Param("cart_id")
+
 	var cart models.Cart
-	// For simplicity, assume a single cart with ID 1
-	if err := h.db.Preload("Items.ProductVariant").First(&cart, 1).Error; err != nil {
+	if err := h.db.Preload("Items.ProductVariant").First(&cart, cartID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Cart not found"})
 			return
@@ -123,8 +137,20 @@ func (h *CartHandler) GetCart(c *gin.Context) {
 }
 
 func (h *CartHandler) RemoveItem(c *gin.Context) {
-	id := c.Param("id")
-	result := h.db.Delete(&models.CartItem{}, id)
+	cartID := c.Param("cart_id")
+	itemID := c.Param("item_id")
+
+	var cartItem models.CartItem
+	if err := h.db.Where("cart_id = ? AND id = ?", cartID, itemID).First(&cartItem).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Cart item not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	result := h.db.Delete(&cartItem)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
 		return
